@@ -1,12 +1,1 @@
-﻿  main.cpp
-  shadersLoader.cpp
-D:\AGH\Praca inżynierska\szablon\main.cpp(195,20): error C2065: "terrainVAO": niezadeklarowany identyfikator
-D:\AGH\Praca inżynierska\szablon\main.cpp(196,31): error C2065: "terrainElements": niezadeklarowany identyfikator
-D:\AGH\Praca inżynierska\szablon\main.cpp(196,2): error C2660: "glDrawElements": funkcja nie przyjmuje 3 argumentów
-  D:\AGH\Praca inżynierska\szablon\GL\glew.h(907,23):
-  zobacz deklarację „glDrawElements”
-  D:\AGH\Praca inżynierska\szablon\main.cpp(196,2):
-  podczas próby dopasowania listy argumentów "(int, int, int)"
-  
-  tekstura.cpp
-  Generowanie kodu...
+﻿  szablon.vcxproj -> D:\AGH\Praca inżynierska\szablon\Debug\szablon.exe
