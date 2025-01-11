@@ -11,6 +11,7 @@
 #include "glm/gtc/matrix_transform.hpp"
 #include <vector>
 #include <iostream>
+#include <chrono>
 
 using namespace std;
 
@@ -24,7 +25,7 @@ int mbutton;
 int klikniecia_z = 0;
 int klikniecia_x = 0;
 double kameraX = 1000.0;
-double kameraZ = 20.0;
+double kameraZ = 200.0;
 double kameraD = -3;
 double kameraPredkosc;
 double kameraKat = -20;
@@ -42,16 +43,17 @@ glm::mat4 P;
 glm::vec3 lightPos(50.0f, 100.0f, 75.0f);
 //glm::vec3 lightPos(1.0f, 0.0f, 0.0f);
 GLuint programID = 0;
-GLuint display = 3;
+GLuint display = 1;
 
 GLuint objectColor_id = 0;
 GLuint lightColor_id = 0;
 GLuint lightPos_id = 0;
+GLuint viewPos_id = 0;
+GLint top = 0;
 
 unsigned int VBO, ebo, NBO;
 unsigned int VAO[1];
 
-//glm::vec3 centerOfGrid(0.0f, 0.0f, 0.0f); // Przechowuje środek siatki
 
 double dx = 3;
 double dy = 1;
@@ -81,8 +83,8 @@ void zwolnienie(float** tablica, int rozmiar) { //TODO WYWALIĆ
 
 }
 
-float randomnumber() {
-	//srand(time(0));
+float randomnumber() { 
+	// srand(NULL);
 	float randomnumber = (float)(rand() % 100) / 50.0f-1.0f;
 	return randomnumber;
 
@@ -90,26 +92,26 @@ float randomnumber() {
 
 
 
-void diamondSquare(float** heights, int rozmiar) { //TODO ZAMIENIĆ NA OBSŁUGĘ <vector>
+void diamondSquare(float** wysokosc, int rozmiar, int roughness) {
 	int step = rozmiar - 1;
 	//Dajemy narożnikom losowe wartości
-	heights[0][0] = randomnumber();
-	heights[0][step] = randomnumber();
-	heights[step][0] = randomnumber();
-	heights[step][step] = randomnumber();
+	wysokosc[0][0] = randomnumber() * roughness;
+	wysokosc[0][step] = randomnumber() * roughness;
+	wysokosc[step][0] = randomnumber() * roughness;
+	wysokosc[step][step] = randomnumber() * roughness;
 
 	while (step > 1)
 	{
-		int halfStep = step / 2; //Zmienna wykorzystywana w kroku kwadratowym
+		int halfStep = step / 2;
 		// Krok diamentowy
 		for (int i = 0; i < rozmiar - 1; i += step)
 			for (int j = 0; j < rozmiar - 1; j += step)
 			{
-				heights[i + halfStep][j + halfStep] =
-					(heights[i][j + step] +
-						heights[i][j] +
-						heights[i + step][j + step] +
-						heights[i + step][j]) * 0.25f + randomnumber();
+				wysokosc[i + halfStep][j + halfStep] =
+					((wysokosc[i][j + step] +
+						wysokosc[i][j] +
+						wysokosc[i + step][j + step] +
+						wysokosc[i + step][j]) * 0.25f + randomnumber());
 			}
 
 		//Krok kwadratowy
@@ -120,23 +122,23 @@ void diamondSquare(float** heights, int rozmiar) { //TODO ZAMIENIĆ NA OBSŁUGĘ
 				int count = 0;
 				//Sprawdzamy, czy przypadkiem nie wychodzimy poza obszar tablicy
 				if (i - halfStep >= 0) {
-					sum += heights[i - halfStep][j];
+					sum += wysokosc[i - halfStep][j];
 					count++;
 				}
 				if (i + halfStep < rozmiar) {
-					sum += heights[i + halfStep][j];
+					sum += wysokosc[i + halfStep][j];
 					count++;
 				}
 				if (j - halfStep >= 0) {
-					sum += heights[i][j - halfStep];
+					sum += wysokosc[i][j - halfStep];
 					count++;
 				}
 				if (j + halfStep < rozmiar) {
-					sum += heights[i][j + halfStep];
+					sum += wysokosc[i][j + halfStep];
 					count++;
 				}
 
-				heights[i][j] = sum / count + randomnumber();
+				wysokosc[i][j] = (sum / count + randomnumber());
 			}
 		step *= 0.5f;
 	}
@@ -144,11 +146,13 @@ void diamondSquare(float** heights, int rozmiar) { //TODO ZAMIENIĆ NA OBSŁUGĘ
 
 
 void generujsiatke(float** wysokosc, int rozmiar, std::vector<float>& wierzcholki, std::vector<unsigned int>& indeks) {
+	
+	
 	for (int i = 0; i < rozmiar; i++) {
 		for (int j = 0; j < rozmiar; j++) {
-			wierzcholki.push_back((float)j);
-			wierzcholki.push_back(wysokosc[i][j]);
-			wierzcholki.push_back((float)i);
+			wierzcholki.push_back(static_cast<float>(j));            // X
+			wierzcholki.push_back(wysokosc[i][j]);                   // Y (wysokość)
+			wierzcholki.push_back(static_cast<float>(i));            // Z
 		}
 	}
 	for (int i = 0; i < rozmiar - 1; i++) {
@@ -170,19 +174,25 @@ void generujsiatke(float** wysokosc, int rozmiar, std::vector<float>& wierzcholk
 
 }
 
-void obliczNormalne(const std::vector<float>& wierzcholki, const std::vector<unsigned int>& indeks, std::vector<float>& normalne, int rozmiar) {
-	normalne.resize(wierzcholki.size(), 0.0f);
+void obliczNormalne(const std::vector<float>& wierzcholki, const std::vector<unsigned int>& indeks, std::vector<float>& normalne) {
+	normalne.assign(wierzcholki.size(), 0.0f);
 
-	for (size_t i = 0; i < indeks.size(); i += 3) {
-		int idx0 = indeks[i] * 3;
-		int idx1 = indeks[i + 1] * 3;
-		int idx2 = indeks[i + 2] * 3;
+	size_t numFaces = indeks.size()/3;
+
+	for (size_t i = 0; i < numFaces; ++i) {
+		size_t idx0 = indeks[i * 3] * 3;
+		size_t idx1 = indeks[i * 3 + 1] * 3;
+		size_t idx2 = indeks[i * 3 + 2] * 3;
 
 		glm::vec3 v0(wierzcholki[idx0], wierzcholki[idx0 + 1], wierzcholki[idx0 + 2]);
 		glm::vec3 v1(wierzcholki[idx1], wierzcholki[idx1 + 1], wierzcholki[idx1 + 2]);
 		glm::vec3 v2(wierzcholki[idx2], wierzcholki[idx2 + 1], wierzcholki[idx2 + 2]);
 
-		glm::vec3 normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
+		glm::vec3 edge1 = v1 - v0;
+		glm::vec3 edge2 = v2 - v0;
+		glm::vec3 normal = glm::normalize(glm::cross(edge1, edge2));
+
+		//glm::vec3 normal = glm::normalize(glm::cross(v1 - v0, v2 - v0));
 
 		for (int j = 0; j < 3; ++j) {
 			normalne[idx0 + j] += normal[j];
@@ -191,12 +201,15 @@ void obliczNormalne(const std::vector<float>& wierzcholki, const std::vector<uns
 		}
 	}
 
-	for (size_t i = 0; i < normalne.size(); i += 3) {
-		glm::vec3 normal(normalne[i], normalne[i + 1], normalne[i + 2]);
+	size_t numVertices = wierzcholki.size() / 3;
+
+	for (size_t i = 0; i < numVertices; ++i) {
+		size_t idx = i * 3;
+		glm::vec3 normal(normalne[idx], normalne[idx + 1], normalne[idx + 2]);
 		normal = glm::normalize(normal);
-		normalne[i] = normal.x;
-		normalne[i + 1] = normal.y;
-		normalne[i + 2] = normal.z;
+		normalne[idx] = normal.x;
+		normalne[idx + 1] = normal.y;
+		normalne[idx + 2] = normal.z;
 	}
 }
 
@@ -269,10 +282,11 @@ void klawiatura_ascii(unsigned char key, int x, int y)
 	if (key == 'z')
 	{
 		klikniecia_z++;
+		
 
-		int rozmiar = sqrt(wierzcholki.size() / 3); // Założenie: siatka jest kwadratowa
-		int srodek = rozmiar * 0.5;                  // Środkowy punkt
-		float promien = 8.0f;                      // Promień obszaru do modyfikacji
+		int rozmiar = sqrt(wierzcholki.size() / 3); 
+		int srodek = rozmiar * 0.5;                 
+		float promien = 8.0f;                      
 
 		float min_wysokosc = std::numeric_limits<float>::max();
 		for (size_t i = 1; i < wierzcholki.size(); i += 3) {
@@ -295,7 +309,7 @@ void klawiatura_ascii(unsigned char key, int x, int y)
 					int index = (i * rozmiar + j) * 3 + 1;
 					if (klikniecia_z == 1)
 					{
-						wierzcholki[index] = min_wysokosc;
+						wierzcholki[index] = -min_wysokosc;
 					}
 					else
 					{
@@ -305,22 +319,30 @@ void klawiatura_ascii(unsigned char key, int x, int y)
 				}
 			}
 		}
+		obliczNormalne(wierzcholki, indeks, normalne);
 		glBindBuffer(GL_ARRAY_BUFFER, VBO);
 		glBufferSubData(GL_ARRAY_BUFFER, 0, wierzcholki.size() * sizeof(float), wierzcholki.data());
+
+		glBindBuffer(GL_ARRAY_BUFFER, NBO);
+		glBufferData(GL_ARRAY_BUFFER, wierzcholki.size() * sizeof(int), normalne.data(), GL_STATIC_DRAW);
+
+
 	}
 
-	if (key == 'x')
+	else if (key == 'x') 
 	{
 		klikniecia_z++;
 
-		int rozmiar = sqrt(wierzcholki.size() / 3); // Założenie: siatka jest kwadratowa
-		int srodek = rozmiar * 0.5;                  // Środkowy punkt
-		float promien = 8.0f;                      // Promień obszaru do modyfikacji
+
+		int rozmiar = sqrt(wierzcholki.size() / 3);
+		int srodek = rozmiar * 0.5;         
+		float promien = 8.0f;
 
 		float min_wysokosc = std::numeric_limits<float>::max();
 		for (size_t i = 1; i < wierzcholki.size(); i += 3) {
 			if (wierzcholki[i] < min_wysokosc) {
 				min_wysokosc = wierzcholki[i];
+				cout << min_wysokosc;
 			}
 		}
 
@@ -336,7 +358,7 @@ void klawiatura_ascii(unsigned char key, int x, int y)
 				if (odleglosc <= promien)
 				{
 					int index = (i * rozmiar + j) * 3 + 1;
-					if (klikniecia_x == 1)
+					if (klikniecia_z == 1)
 					{
 						wierzcholki[index] = min_wysokosc;
 					}
@@ -348,9 +370,48 @@ void klawiatura_ascii(unsigned char key, int x, int y)
 				}
 			}
 		}
+		
+		obliczNormalne(wierzcholki, indeks, normalne);
 		glBindBuffer(GL_ARRAY_BUFFER, VBO);
 		glBufferSubData(GL_ARRAY_BUFFER, 0, wierzcholki.size() * sizeof(float), wierzcholki.data());
+
+
+		glBindBuffer(GL_ARRAY_BUFFER, NBO);
+		glBufferData(GL_ARRAY_BUFFER, wierzcholki.size() * sizeof(int), normalne.data(), GL_STATIC_DRAW);
 	}
+
+	else if (key == 'o') {
+		dx += 5.0;
+		
+	}
+	else if (key == 'p') {
+		dx -= 5.0;	
+	}
+	else if (key == 'a')
+	{
+		lightPos[0] -= 5.0;
+	}
+	else if (key == 's')
+	{
+		lightPos[0] += 5.0;
+	}
+	else if (key == 'q')
+	{
+		lightPos[1] += 5.0;
+	}
+	else if (key == 'w')
+	{
+		lightPos[1] -= 5.0;
+	}
+	else if (key == 'e')
+	{
+		lightPos[2] += 5.0;
+	}
+	else if (key == 'r')
+	{
+		lightPos[2] -= 5.0;
+	}
+
 
 	else if (key == 27)
 	{
@@ -379,7 +440,7 @@ void draw(void) {
 	glUseProgram(programID);
 	
 	MV = glm::mat4(1.0f);  //macierz jednostkowa
-	MV = glm::translate(MV, glm::vec3(1, -1, kameraD + dx));
+	MV = glm::translate(MV, glm::vec3(-1, 1, kameraD + dx));
 
 	MV = glm::scale(MV, glm::vec3(1, dy, 1));
 	MV = glm::rotate(MV, (float)glm::radians(kameraZ), glm::vec3(1, 0, 0));
@@ -402,7 +463,14 @@ void draw(void) {
 
 	GLuint lightStr_id = glGetUniformLocation(programID, "lightStr");
 	glUniform1f(lightStr_id, lightStr);
+	
+	GLuint top_id = glGetUniformLocation(programID, "top");
+	glUniform1i(top_id, top);
+
+	GLuint viewPos_id = glGetUniformLocation(programID, "viewPos");
+	glUniform3fv(viewPos_id, 1, &glm::vec3(0.0f, 0.0f, 0.0f)[0]);
 	glBindVertexArray(VAO[0]);
+
 	switch (display)
 	{
 	case 1:
@@ -453,11 +521,28 @@ void size(int width, int height)
 
 int main(int argc, char** argv) {
 
-	int rozmiar = 4097;
+	int rozmiar;
+	int roughness;
+	cout << "Proszę zdefiniować rozmiar siatki: ";
+	cin >> rozmiar;
+	cout << "Proszę zdefiniować roughness: ";
+	cin >> roughness;
+	const auto start_diament = std::chrono::steady_clock::now();
 	float** wysokosc = alokacja(rozmiar);
-	diamondSquare(wysokosc, rozmiar);
+	diamondSquare(wysokosc, rozmiar, roughness);
+	const auto end_diament = std::chrono::steady_clock::now();
+	std::chrono::duration<double> elapsed = end_diament - start_diament;
+	cout << "Czas generowania wysokości: " << elapsed.count() << "\n";
+	const auto start_3d = std::chrono::steady_clock::now();
 	generujsiatke(wysokosc, rozmiar, wierzcholki, indeks);
-	obliczNormalne(wierzcholki, indeks, normalne, rozmiar);
+	const auto end_3d = std::chrono::steady_clock::now();
+	elapsed = end_3d - start_3d;
+	cout << "Czas generowania siatki: " << elapsed.count() << "\n";
+	const auto start_normals = std::chrono::steady_clock::now();
+	obliczNormalne(wierzcholki, indeks, normalne);
+	const auto end_normals = std::chrono::steady_clock::now();
+	elapsed = end_normals - start_normals;
+	cout << "Czas obliczania normalnych: " << elapsed.count() << "\n";
 	zwolnienie(wysokosc, rozmiar);
 
 	glutInit(&argc, argv);
@@ -513,6 +598,7 @@ int main(int argc, char** argv) {
 	objectColor_id = glGetUniformLocation(programID, "objectColor");
 	lightColor_id = glGetUniformLocation(programID, "lightColor");
 	lightPos_id = glGetUniformLocation(programID, "lightPos");
+	viewPos_id = glGetUniformLocation(programID, "lightPos");
 
 	glBindVertexArray(VAO[0]);
 	glBindBuffer(GL_ARRAY_BUFFER, VBO);
